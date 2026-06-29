@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { 
-  Cpu, Users, Trophy, User as UserIcon, Settings, Calendar, Play, Sparkles, Coins, Gift, Swords, Gamepad2, Skull
+  Cpu, Users, Trophy, User as UserIcon, Settings, Calendar, Play, Sparkles, Coins, Gift, Swords, Gamepad2, Skull, Cloud
 } from 'lucide-react';
 import { soundManager } from '../utils/sound';
 
 interface LandingPageProps {
   user: any;
-  onSelectMode: (mode: 'ai-guesser' | 'ai-detective' | 'multiplayer' | 'leaderboard' | 'profile' | 'admin') => void;
+  onSelectMode: (mode: 'ai-guesser' | 'ai-detective' | 'multiplayer' | 'leaderboard' | 'profile' | 'admin' | 'drive') => void;
   onClaimDaily: () => void;
 }
 
@@ -69,6 +69,17 @@ export default function LandingPage({ user, onSelectMode, onClaimDaily }: Landin
       color: 'border-fuchsia-500/20 hover:border-fuchsia-500/50 hover:shadow-[0_0_20px_rgba(217,70,239,0.15)] bg-fuchsia-950/5',
       accent: 'text-fuchsia-400',
       actionText: 'Join Arena'
+    },
+    {
+      id: 'drive',
+      title: 'Drive Mystery',
+      desc: 'Connect your Google Drive and guess/stump the AI using your actual workspace files!',
+      icon: <Cloud className="w-8 h-8 text-emerald-400 group-hover:scale-110 transition-transform" />,
+      tag: 'Workspace OAuth',
+      badge: 'New Mode',
+      color: 'border-emerald-500/20 hover:border-emerald-500/50 hover:shadow-[0_0_20px_rgba(16,185,129,0.15)] bg-emerald-950/5',
+      accent: 'text-emerald-400',
+      actionText: 'Browse Drive'
     }
   ];
 
@@ -148,7 +159,7 @@ export default function LandingPage({ user, onSelectMode, onClaimDaily }: Landin
             <Gamepad2 className="w-5 h-5 text-violet-400" /> Game Mode Selection
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {menuItems.map((item) => (
               <div
                 key={item.id}

@@ -8,6 +8,8 @@ interface AIGuesserGameProps {
   user: any;
   onBack: () => void;
   onUpdateUser: (updatedUser: any) => void;
+  preseededSecretObject?: string;
+  preseededCategory?: string;
 }
 
 const CATEGORY_MAP: Record<string, string> = {
@@ -30,7 +32,13 @@ interface QAPair {
   comment: string;
 }
 
-export default function AIGuesserGame({ user, onBack, onUpdateUser }: AIGuesserGameProps) {
+export default function AIGuesserGame({ 
+  user, 
+  onBack, 
+  onUpdateUser,
+  preseededSecretObject,
+  preseededCategory
+}: AIGuesserGameProps) {
   // Config state
   const [category, setCategory] = useState('Random 😈');
   const [difficulty, setDifficulty] = useState('Medium');
@@ -39,6 +47,7 @@ export default function AIGuesserGame({ user, onBack, onUpdateUser }: AIGuesserG
   // Active game state
   const [secretObject, setSecretObject] = useState('');
   const [revealedCategory, setRevealedCategory] = useState('');
+  const [attributes, setAttributes] = useState<any>(null);
   const [maxQuestions, setMaxQuestions] = useState(20);
   const [questionsLeft, setQuestionsLeft] = useState(20);
   const [history, setHistory] = useState<QAPair[]>([]);
@@ -47,6 +56,20 @@ export default function AIGuesserGame({ user, onBack, onUpdateUser }: AIGuesserG
   const [isAsking, setIsAsking] = useState(false);
   const [isGuessing, setIsGuessing] = useState(false);
   const [clue, setClue] = useState('');
+
+  // Bootstrap from preseeded Google Drive file if available
+  useEffect(() => {
+    if (preseededSecretObject) {
+      setSecretObject(preseededSecretObject);
+      setRevealedCategory(preseededCategory || 'Google Drive File 💾');
+      setMaxQuestions(20);
+      setQuestionsLeft(20);
+      setHistory([]);
+      setTimeLeft(300);
+      setClue('');
+      setGameState('playing');
+    }
+  }, [preseededSecretObject, preseededCategory]);
   
   // Timer state
   const [timeLeft, setTimeLeft] = useState(300); // 5 minutes standard
@@ -96,6 +119,7 @@ export default function AIGuesserGame({ user, onBack, onUpdateUser }: AIGuesserG
       if (response.ok) {
         setSecretObject(data.secretObject);
         setRevealedCategory(data.category);
+        setAttributes(data.attributes || null);
         setMaxQuestions(data.maxQuestions);
         setQuestionsLeft(data.maxQuestions);
         setHistory([]);
@@ -131,7 +155,8 @@ export default function AIGuesserGame({ user, onBack, onUpdateUser }: AIGuesserG
           secretObject,
           category: revealedCategory,
           question: qText,
-          difficulty
+          difficulty,
+          attributes
         })
       });
       const data = await response.json();

@@ -205,6 +205,19 @@ function simulateAiResponse(prompt: string, system?: string, isJson?: boolean): 
         text: q,
         reasoning: 'Analyzing common traits of objects.'
       });
+    } else if (prompt.includes('attributes') && prompt.includes('Select a secret')) {
+      // Simulation of picking secret object and attributes
+      const randomObjects = [
+        { name: 'Elephant', attrs: { category: 'animal', living: 'yes', size: 'large', indoor: 'no', technologyRelated: 'no', common: 'yes' } },
+        { name: 'Smartphone', attrs: { category: 'object', living: 'no', size: 'small', indoor: 'yes', technologyRelated: 'yes', common: 'yes' } },
+        { name: 'Eiffel Tower', attrs: { category: 'place', living: 'no', size: 'large', indoor: 'no', technologyRelated: 'no', common: 'yes' } },
+        { name: 'Pizza', attrs: { category: 'food', living: 'no', size: 'small', indoor: 'yes', technologyRelated: 'no', common: 'yes' } }
+      ];
+      const picked = randomObjects[Math.floor(Math.random() * randomObjects.length)];
+      return JSON.stringify({
+        secretObject: picked.name,
+        attributes: picked.attrs
+      });
     } else {
       // Guesser game: Yes/No answers
       const answers = ['Yes', 'No'];
@@ -337,150 +350,275 @@ app.get('/api/leaderboard', (req, res) => {
 
 // AI Guesser Start
 app.post('/api/ai/guesser/start', async (req, res) => {
-  const { userId, category, difficulty } = req.body;
-  if (!userId) return res.status(400).json({ error: 'Missing userId' });
+  try {
+    const { userId, category, difficulty } = req.body;
+    if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
-  let selectedCategory = category || 'Random';
-  if (selectedCategory === 'Random') {
-    const list = db.categories.filter(c => c !== 'Random');
-    selectedCategory = list[Math.floor(Math.random() * list.length)];
+    let selectedCategory = category || 'Random';
+    if (selectedCategory === 'Random') {
+      const list = db.categories.filter(c => c !== 'Random');
+      selectedCategory = list[Math.floor(Math.random() * list.length)];
+    }
+
+    const diff = difficulty || 'Medium';
+    const limits: Record<string, number> = {
+      'Easy': 25,
+      'Medium': 20,
+      'Hard': 15,
+      'Impossible': 10,
+      'Nightmare': 5
+    };
+    const maxQuestions = limits[diff] || 20;
+
+    // Ask AI to pick a secret object and its structured attributes in one shot
+    const pickPrompt = `Select a secret single-word or very short phrase object, place, food, movie, country or animal. 
+    It must belong to the category: "${selectedCategory}". 
+    The player's difficulty setting is "${diff}". Adjust the obscurity/difficulty of the selected object accordingly (Easy = very famous, Nightmare = obscure or conceptual).
+    
+    And establish its locked hidden attributes.
+    
+    Your response must be in valid JSON with these exact properties:
+    - "secretObject": The exact name of the object. No punctuation, no extra sentences.
+    - "attributes": An object with these exact properties:
+      - "category": The general category (e.g. animal, object, place, food, movie, country, etc.)
+      - "living": "yes" or "no"
+      - "size": "small", "medium", or "large"
+      - "indoor": "yes" or "no"
+      - "technologyRelated": "yes" or "no"
+      - "common": "yes" or "no"
+    `;
+
+    const system = `You are a strict object selector and attributes generator. You MUST respond with ONLY the valid JSON structure specified. No markdown formatting, no code blocks, just raw JSON.`;
+    const responseText = await askGemini(pickPrompt, system, true);
+    
+    let secretObject = 'Smartphone';
+    let attributes = {
+      category: 'object',
+      living: 'no',
+      size: 'small',
+      indoor: 'yes',
+      technologyRelated: 'yes',
+      common: 'yes'
+    };
+
+    if (typeof responseText === 'string' && responseText.trim()) {
+      try {
+        const parsed = JSON.parse(responseText.trim().replace(/^```json/, '').replace(/```$/, '').trim());
+        if (parsed.secretObject) {
+          secretObject = parsed.secretObject;
+        }
+        if (parsed.attributes) {
+          attributes = parsed.attributes;
+        }
+      } catch (e) {
+        console.warn("Failed to parse start JSON. Fallback active.", e);
+      }
+    }
+
+    const cleanedSecret = (secretObject || 'Smartphone').replace(/[".']/g, '').trim();
+
+    res.json({
+      secretObject: cleanedSecret,
+      attributes,
+      maxQuestions,
+      category: selectedCategory,
+      difficulty: diff
+    });
+  } catch (error: any) {
+    console.error("Error in guesser/start endpoint:", error);
+    res.status(500).json({
+      error: "Failed to initialize game properly. Please try again.",
+      secretObject: "Smartphone",
+      attributes: {
+        category: "object",
+        living: "no",
+        size: "small",
+        indoor: "yes",
+        technologyRelated: "yes",
+        common: "yes"
+      },
+      maxQuestions: 20,
+      category: "Objects",
+      difficulty: "Medium"
+    });
   }
-
-  const diff = difficulty || 'Medium';
-  const limits: Record<string, number> = {
-    'Easy': 25,
-    'Medium': 20,
-    'Hard': 15,
-    'Impossible': 10,
-    'Nightmare': 5
-  };
-  const maxQuestions = limits[diff] || 20;
-
-  // Ask AI to pick a secret object
-  const pickPrompt = `Select a secret single-word or very short phrase object, place, food, movie, country or animal. 
-  It must belong to the category: "${selectedCategory}". 
-  The player's difficulty setting is "${diff}". Adjust the obscurity/difficulty of the selected object accordingly (Easy = very famous, Nightmare = obscure or conceptual).
-  Respond with ONLY the exact name of the object. No punctuation, no wrapping, no extra sentences.`;
-
-  const system = `You are a strict database selector. Output only the word or short name of the chosen object.`;
-  const secretObject = await askGemini(pickPrompt, system);
-  const cleanedSecret = secretObject.replace(/[".']/g, '').trim();
-
-  res.json({
-    secretObject: cleanedSecret, // Send to client, client should keep it hidden or Server can keep state (we will allow client to store it in game session for simple routing, or we keep it)
-    maxQuestions,
-    category: selectedCategory,
-    difficulty: diff
-  });
 });
 
 // AI Guesser Ask Question
 app.post('/api/ai/guesser/ask', async (req, res) => {
-  const { secretObject, category, question, difficulty } = req.body;
-  if (!secretObject || !question) {
-    return res.status(400).json({ error: 'Missing parameters' });
-  }
-
-  const prompt = `The secret item is: "${secretObject}".
-  The category of the secret item is: "${category}".
-  The current difficulty is: "${difficulty}".
-  The player asks this question to try to deduce the secret item: "${question}".
-  
-  Your response must be in JSON with these properties:
-  - "answer": Must be exactly "Yes" or "No".
-  - "comment": A short, witty, and highly engaging 1-sentence comment as a snarky Game Master (under 12 words). Do not give away the answer directly.
-  `;
-
-  const system = `You are the witty, slightly snarky Game Master of a guessing game. You strictly answer questions about the secret object with "Yes" or "No". Under no circumstances can you answer "Sometimes" or give any vague answers. You must be 100% consistent and logical based on real-world facts of "${secretObject}". Respond only with valid JSON matching the schema.`;
-  const jsonResponse = await askGemini(prompt, system, true);
-
   try {
-    const parsed = JSON.parse(jsonResponse);
-    // Strict clean-up to guarantee 'Yes' or 'No'
-    if (parsed.answer !== 'Yes' && parsed.answer !== 'No') {
-      parsed.answer = 'No';
+    const { secretObject, category, question, difficulty, attributes } = req.body;
+    if (!secretObject || !question) {
+      return res.status(400).json({ error: 'Missing parameters' });
     }
-    res.json(parsed);
-  } catch (e) {
-    // If JSON parsing fails, fallback
+
+    const attributesStr = attributes ? JSON.stringify(attributes) : 'N/A';
+
+    const prompt = `You are a game response engine.
+    The secret target is: "${secretObject}" (Category: "${category}").
+    Here is the pre-defined JSON schema of attributes for this object: ${attributesStr}.
+    
+    The player asks this question: "${question}".
+    
+    Evaluate if the answer to the question is YES or NO. Do not think deeply, do not explain. Answer based only on the given object attributes or simple logical facts of the object.
+    
+    Your response must be in valid JSON with these exact properties:
+    - "answer": "Yes" or "No".
+    - "comment": A short, witty, and highly engaging 1-sentence comment as a snarky Game Master (under 12 words). Do not give away the answer directly.
+    `;
+
+    const system = `You are a strict game response engine. Reply only YES or NO. Do not think, do not explain. Answer based only on given object attributes. Be instant and consistent. Respond in valid JSON format only.`;
+    const jsonResponse = await askGemini(prompt, system, true);
+
+    let answer = 'No';
+    let comment = 'An interesting query... My answer is No.';
+
+    if (typeof jsonResponse === 'string' && jsonResponse.trim()) {
+      try {
+        const parsed = JSON.parse(jsonResponse.trim().replace(/^```json/, '').replace(/```$/, '').trim());
+        if (parsed.answer) {
+          answer = parsed.answer;
+        }
+        if (parsed.comment) {
+          comment = parsed.comment;
+        }
+      } catch (e) {
+        console.warn("Failed to parse ask JSON:", e);
+      }
+    }
+
+    // Strict clean-up to guarantee 'Yes' or 'No'
+    if (answer !== 'Yes' && answer !== 'No') {
+      if (typeof answer === 'string' && answer.toLowerCase().includes('yes')) {
+        answer = 'Yes';
+      } else if (typeof answer === 'string' && answer.toLowerCase().includes('no')) {
+        answer = 'No';
+      } else {
+        answer = 'No';
+      }
+    }
+
+    res.json({ answer, comment });
+  } catch (error: any) {
+    console.error("Error in guesser/ask endpoint:", error);
     res.json({
       answer: 'No',
-      comment: 'An interesting query... I cannot give you a straight answer.'
+      comment: 'An interesting query... My connection is slightly fuzzy.'
     });
   }
 });
 
 // AI Guesser Validate Guess
 app.post('/api/ai/guesser/guess', async (req, res) => {
-  const { secretObject, guess, category } = req.body;
-  if (!secretObject || !guess) {
-    return res.status(400).json({ error: 'Missing parameters' });
-  }
-
-  const cleanSecret = secretObject.toLowerCase().trim();
-  const cleanGuess = guess.toLowerCase().trim();
-
-  // Basic direct match
-  if (cleanSecret === cleanGuess || cleanSecret.includes(cleanGuess) && cleanGuess.length > 3) {
-    return res.json({ correct: true, confidence: 100 });
-  }
-
-  // Otherwise, use smart semantic comparison
-  const prompt = `The secret target word is: "${secretObject}".
-  The player's guess is: "${guess}".
-  The category is: "${category}".
-  
-  Does this guess refer to the exact same object or target, or is it a very close synonym that should be counted as correct?
-  Respond with a JSON object containing:
-  - "correct": boolean (true if the guess is correct/synonymous, false otherwise)
-  - "clue": a short, witty hint (under 10 words) highlighting why it is incorrect or slightly off, without directly spoiling the answer.
-  `;
-
-  const system = `You are a precise referee. Decide if the player's guess matches the secret target semantically. Respond in valid JSON only.`;
-  const jsonResponse = await askGemini(prompt, system, true);
-
   try {
-    const parsed = JSON.parse(jsonResponse);
-    res.json(parsed);
-  } catch (e) {
-    res.json({ correct: false, clue: 'Not quite! Try thinking outside the box.' });
+    const { secretObject, guess, category } = req.body;
+    if (!secretObject || !guess) {
+      return res.status(400).json({ error: 'Missing parameters' });
+    }
+
+    const cleanSecret = secretObject.toLowerCase().trim();
+    const cleanGuess = guess.toLowerCase().trim();
+
+    // Basic direct match
+    if (cleanSecret === cleanGuess || (cleanSecret.includes(cleanGuess) && cleanGuess.length > 3)) {
+      return res.json({ correct: true, confidence: 100 });
+    }
+
+    // Otherwise, use smart semantic comparison
+    const prompt = `The secret target word is: "${secretObject}".
+    The player's guess is: "${guess}".
+    The category is: "${category}".
+    
+    Does this guess refer to the exact same object or target, or is it a very close synonym that should be counted as correct?
+    Respond with a JSON object containing:
+    - "correct": boolean (true if the guess is correct/synonymous, false otherwise)
+    - "clue": a short, witty hint (under 10 words) highlighting why it is incorrect or slightly off, without directly spoiling the answer.
+    `;
+
+    const system = `You are a precise referee. Decide if the player's guess matches the secret target semantically. Respond in valid JSON only.`;
+    const jsonResponse = await askGemini(prompt, system, true);
+
+    let correct = false;
+    let clue = 'Not quite! Try thinking outside the box.';
+
+    if (typeof jsonResponse === 'string' && jsonResponse.trim()) {
+      try {
+        const parsed = JSON.parse(jsonResponse.trim().replace(/^```json/, '').replace(/```$/, '').trim());
+        if (parsed.correct !== undefined) {
+          correct = !!parsed.correct;
+        }
+        if (parsed.clue) {
+          clue = parsed.clue;
+        }
+      } catch (e) {
+        console.warn("Failed to parse guess JSON:", e);
+      }
+    }
+
+    res.json({ correct, clue });
+  } catch (error: any) {
+    console.error("Error in guesser/guess endpoint:", error);
+    res.json({ correct: false, clue: 'Not quite! My neural net is recalculating.' });
   }
 });
 
 // AI Detective Ask (Next AI question or final guess)
 app.post('/api/ai/detective/ask', async (req, res) => {
-  const { category, difficulty, history } = req.body; // history: Array of { q: string, a: string }
-  
-  const historyText = history.map((h: any, idx: number) => `Q${idx+1}: ${h.q} -> Answer: ${h.a}`).join('\n');
-  const questionCount = history.length;
-
-  const prompt = `You are the AI Detective. Your goal is to deduce the secret object that the player has selected.
-  The category is "${category}" and the difficulty level is "${difficulty}".
-  We have asked ${questionCount} questions so far.
-  Here is the question & answer history:
-  ${historyText || 'No questions asked yet.'}
-
-  Now, you must decide your next step. You can either:
-  1. Ask another yes/no question to narrow down the target.
-  2. Make a final guess (if you have strong confidence, or if we are approaching the 20 questions limit).
-
-  Your response must be in valid JSON with these exact properties:
-  - "type": "question" or "guess"
-  - "text": The text of your question (e.g. "Is it electronic?") or your final guess (e.g. "Is it a smartphone?")
-  - "reasoning": A brief developer note explaining your logical progression.
-  `;
-
-  const system = `You are an elite, highly intelligent detective playing a guessing game. You must ask highly optimal questions (using binary search style queries) to narrow down the secret item, or make a guess if confident. Respond ONLY in valid JSON.`;
-  const jsonResponse = await askGemini(prompt, system, true);
-
   try {
-    const parsed = JSON.parse(jsonResponse);
-    res.json(parsed);
-  } catch (e) {
+    const { category, difficulty, history, driveFileList } = req.body; // history: Array of { q: string, a: string }
+    
+    const historyList = Array.isArray(history) ? history : [];
+    const historyText = historyList.map((h: any, idx: number) => `Q${idx+1}: ${h.q} -> Answer: ${h.a}`).join('\n');
+    const questionCount = historyList.length;
+
+    const prompt = `You are the AI Detective. Your goal is to deduce the secret object that the player has selected.
+    The category is "${category}" and the difficulty level is "${difficulty}".
+    ${driveFileList && driveFileList.length > 0 ? `CRITICAL CONTEXT: The secret object is exactly one of the files in the user's Google Drive. Here is the list of their Drive file names: [${driveFileList.map((f: string) => `"${f}"`).join(', ')}]. You should formulate questions specifically to narrow down this exact list of files (e.g. asking about file names, file extensions/types like PDF or spreadsheets, or word patterns in the names). Your final guess MUST be one of these file names.` : ''}
+    We have asked ${questionCount} questions so far.
+    Here is the question & answer history:
+    ${historyText || 'No questions asked yet.'}
+
+    Now, you must decide your next step. You can either:
+    1. Ask another yes/no question to narrow down the target.
+    2. Make a final guess (if you have strong confidence, or if we are approaching the 20 questions limit).
+
+    Your response must be in valid JSON with these exact properties:
+    - "type": "question" or "guess"
+    - "text": The text of your question (e.g. "Is the file a PDF?") or your final guess (e.g. "Is it \"My_Budget_Sheet.xlsx\"?")
+    - "reasoning": A brief developer note explaining your logical progression.
+    `;
+
+    const system = `You are an elite, highly intelligent detective playing a guessing game. You must ask highly optimal questions (using binary search style queries) to narrow down the secret item, or make a guess if confident. Respond ONLY in valid JSON.`;
+    const jsonResponse = await askGemini(prompt, system, true);
+
+    let type = 'question';
+    let text = 'Is it something you can touch physically?';
+    let reasoning = 'Initial search direction.';
+
+    if (typeof jsonResponse === 'string' && jsonResponse.trim()) {
+      try {
+        const parsed = JSON.parse(jsonResponse.trim().replace(/^```json/, '').replace(/```$/, '').trim());
+        if (parsed.type) {
+          type = parsed.type;
+        }
+        if (parsed.text) {
+          text = parsed.text;
+        }
+        if (parsed.reasoning) {
+          reasoning = parsed.reasoning;
+        }
+      } catch (e) {
+        console.warn("Failed to parse detective JSON:", e);
+      }
+    }
+
+    res.json({ type, text, reasoning });
+  } catch (error: any) {
+    console.error("Error in detective/ask endpoint:", error);
     res.json({
       type: 'question',
-      text: 'Is it something you can touch physically?',
-      reasoning: 'Fallback question due to parsing issue.'
+      text: 'Is it something commonly found on Earth?',
+      reasoning: 'Fallback question due to unexpected exception.'
     });
   }
 });

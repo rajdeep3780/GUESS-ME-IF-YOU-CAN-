@@ -12,11 +12,17 @@ import MultiplayerGame from './components/MultiplayerGame';
 import LeaderboardPage from './components/LeaderboardPage';
 import ProfilePage from './components/ProfilePage';
 import AdminPanel from './components/AdminPanel';
+import DriveIntegration from './components/DriveIntegration';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
-  const [currentView, setCurrentView] = useState<'home' | 'ai-guesser' | 'ai-detective' | 'multiplayer' | 'leaderboard' | 'profile' | 'admin'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'ai-guesser' | 'ai-detective' | 'multiplayer' | 'leaderboard' | 'profile' | 'admin' | 'drive'>('home');
   const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Preseeded states for Google Drive integrations
+  const [preseededSecretObject, setPreseededSecretObject] = useState<string>('');
+  const [preseededCategory, setPreseededCategory] = useState<string>('');
+  const [driveFileListContext, setDriveFileListContext] = useState<string[] | undefined>(undefined);
 
   // Load session from local storage and sync with server
   useEffect(() => {
@@ -149,6 +155,16 @@ export default function App() {
               >
                 Profile
               </button>
+              <button
+                onClick={() => { soundManager.playClick(); setCurrentView('drive'); }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  currentView === 'drive' 
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25' 
+                    : 'text-gray-400 hover:text-emerald-300 border border-transparent'
+                }`}
+              >
+                Drive
+              </button>
               {user.id === 'google_rajdeep' && (
                 <button
                   onClick={() => { soundManager.playClick(); setCurrentView('admin'); }}
@@ -202,15 +218,29 @@ export default function App() {
         {currentView === 'ai-guesser' && (
           <AIGuesserGame 
             user={user} 
-            onBack={() => setCurrentView('home')} 
+            onBack={() => {
+              setPreseededSecretObject('');
+              setPreseededCategory('');
+              setCurrentView('home');
+            }} 
             onUpdateUser={handleUpdateUser}
+            preseededSecretObject={preseededSecretObject || undefined}
+            preseededCategory={preseededCategory || undefined}
           />
         )}
         {currentView === 'ai-detective' && (
           <AIDetectiveGame 
             user={user} 
-            onBack={() => setCurrentView('home')} 
+            onBack={() => {
+              setPreseededSecretObject('');
+              setPreseededCategory('');
+              setDriveFileListContext(undefined);
+              setCurrentView('home');
+            }} 
             onUpdateUser={handleUpdateUser}
+            preseededSecretObject={preseededSecretObject || undefined}
+            preseededCategory={preseededCategory || undefined}
+            driveFileListContext={driveFileListContext}
           />
         )}
         {currentView === 'multiplayer' && (
@@ -236,6 +266,31 @@ export default function App() {
         {currentView === 'admin' && (
           <AdminPanel 
             onBack={() => setCurrentView('home')} 
+          />
+        )}
+        {currentView === 'drive' && (
+          <DriveIntegration 
+            onBack={() => setCurrentView('home')}
+            onLaunchDetective={(secretObject, fileNames) => {
+              setPreseededSecretObject(secretObject);
+              setPreseededCategory('Google Drive File 💾');
+              setDriveFileListContext(fileNames);
+              setCurrentView('ai-detective');
+            }}
+            onLaunchGuesser={(secretObject) => {
+              setPreseededSecretObject(secretObject);
+              setPreseededCategory('Google Drive File 💾');
+              setCurrentView('ai-guesser');
+            }}
+            userCareerStats={{
+              level: user.level,
+              xp: user.xp,
+              coins: user.coins,
+              gamesPlayed: user.gamesPlayed,
+              gamesWon: user.gamesWon,
+              accuracy: user.accuracy,
+              achievements: user.achievements
+            }}
           />
         )}
       </main>

@@ -8,6 +8,9 @@ interface AIDetectiveGameProps {
   user: any;
   onBack: () => void;
   onUpdateUser: (updatedUser: any) => void;
+  preseededSecretObject?: string;
+  preseededCategory?: string;
+  driveFileListContext?: string[];
 }
 
 const CATEGORY_MAP: Record<string, string> = {
@@ -27,7 +30,14 @@ interface HistoryItem {
   a: string;
 }
 
-export default function AIDetectiveGame({ user, onBack, onUpdateUser }: AIDetectiveGameProps) {
+export default function AIDetectiveGame({ 
+  user, 
+  onBack, 
+  onUpdateUser,
+  preseededSecretObject,
+  preseededCategory,
+  driveFileListContext
+}: AIDetectiveGameProps) {
   // Config state
   const [category, setCategory] = useState('Objects 📦');
   const [difficulty, setDifficulty] = useState('Medium');
@@ -47,6 +57,35 @@ export default function AIDetectiveGame({ user, onBack, onUpdateUser }: AIDetect
     historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history, loading]);
 
+  // Bootstrap from preseeded Google Drive file if available
+  useEffect(() => {
+    if (preseededSecretObject) {
+      setSecretObject(preseededSecretObject);
+      setCategory(preseededCategory || 'Google Drive File 💾');
+      setHistory([]);
+      setRounds(0);
+      setGameState('playing');
+      setLoading(true);
+
+      fetch('/api/ai/detective/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          category: preseededCategory || 'Google Drive File 💾', 
+          difficulty, 
+          history: [],
+          driveFileList: driveFileListContext
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        setAiResponse(data);
+      })
+      .catch(err => console.error(err))
+      .finally(() => setLoading(false));
+    }
+  }, [preseededSecretObject, preseededCategory, driveFileListContext]);
+
   const handleStartGame = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!secretObject.trim()) return;
@@ -62,7 +101,12 @@ export default function AIDetectiveGame({ user, onBack, onUpdateUser }: AIDetect
       const response = await fetch('/api/ai/detective/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: CATEGORY_MAP[category] || category, difficulty, history: [] })
+        body: JSON.stringify({ 
+          category: CATEGORY_MAP[category] || category, 
+          difficulty, 
+          history: [],
+          driveFileList: driveFileListContext 
+        })
       });
       const data = await response.json();
       if (response.ok) {
@@ -142,7 +186,12 @@ export default function AIDetectiveGame({ user, onBack, onUpdateUser }: AIDetect
       const response = await fetch('/api/ai/detective/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: CATEGORY_MAP[category] || category, difficulty, history: updatedHistory })
+        body: JSON.stringify({ 
+          category: CATEGORY_MAP[category] || category, 
+          difficulty, 
+          history: updatedHistory,
+          driveFileList: driveFileListContext 
+        })
       });
       const data = await response.json();
       if (response.ok) {
