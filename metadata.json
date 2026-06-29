@@ -1,0 +1,6 @@
+{
+  "name": "Guess Me If You Can",
+  "description": "A modern multiplayer web game where players guess secret objects, play against smart AI, or challenge friends in real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
